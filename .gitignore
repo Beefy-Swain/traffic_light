@@ -1,3 +1,4 @@
 build/
 venv/
 example/
+secrets.h
