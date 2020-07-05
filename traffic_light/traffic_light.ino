@@ -1,223 +1,255 @@
+/* traffic_light controller
+
+https://circuits4you.com/2018/12/31/esp32-devkit-esp32-wroom-gpio-pinout/
+
+Things to note:
+the left light is refered to in a reference to traffic heading parallel an
+observer, and the right light perpendicular to the observer
+*/
+
+#include "secrets.h"
 #include <ESPUI.h>
 #include <WiFi.h>
-#include "secrets.h"
 
-uint16_t button1;
-uint16_t switchOne;
-uint16_t status;
+const int TOTAL_CYCLE_DURATION = 32000;
 
-void numberCall( Control* sender, int type ) {
-  Serial.println( sender->value );
-}
+// pin config
+const int RIGHT_GREEN = 13;
+const int LEFT_GREEN = 12;
+const int RIGHT_YELLOW = 14;
+const int LEFT_YELLOW = 27;
+const int RIGHT_RED = 26;
+const int LEFT_RED = 25;
 
-void textCall( Control* sender, int type ) {
-  Serial.print("Text: ID: ");
-  Serial.print(sender->id);
-  Serial.print(", Value: ");
-  Serial.println( sender->value );}
+const int OUTPUT_PINS_SIZE = 6;
+const int OUTPUT_PINS[OUTPUT_PINS_SIZE] = {
+    LEFT_GREEN, LEFT_YELLOW, LEFT_RED, RIGHT_GREEN, RIGHT_YELLOW, RIGHT_RED,
+};
 
-void slider( Control* sender, int type ) {
-  Serial.print("Slider: ID: ");
-  Serial.print(sender->id);
-  Serial.print(", Value: ");
-  Serial.println( sender->value );}
+int MILLIS_LABEL_ID;
+int LEFT_LIGHT_LABEL_ID;
+int RIGHT_LIGHT_LABEL_ID;
 
-void buttonCallback( Control* sender, int type ) {
-  switch ( type ) {
-    case B_DOWN:
-      Serial.println( "Button DOWN" );
-      break;
+enum SIDE { LEFT, RIGHT };
 
-    case B_UP:
-      Serial.println( "Button UP" );
-      break;
-  }
-}
+void setup(void) {
+  Serial.begin(115200);
 
-void buttonExample( Control* sender, int type ) {
-  switch ( type ) {
-    case B_DOWN:
-      Serial.println( "Status: Start" );
-      ESPUI.updateControlValue( status, "Start" );
-    
-      ESPUI.getControl( button1 )->color = ControlColor::Carrot;
-      ESPUI.updateControl( button1 );
-      break;
-
-    case B_UP:
-      Serial.println( "Status: Stop" );
-      ESPUI.updateControlValue( status, "Stop" );
-   
-      ESPUI.getControl( button1 )->color = ControlColor::Peterriver;
-      ESPUI.updateControl( button1 );
-      break;
-  }
-}
-
-void padExample( Control* sender, int value ) {
-  switch ( value ) {
-    case P_LEFT_DOWN:
-      Serial.print( "left down" );
-      break;
-
-    case P_LEFT_UP:
-      Serial.print( "left up" );
-      break;
-
-    case P_RIGHT_DOWN:
-      Serial.print( "right down" );
-      break;
-
-    case P_RIGHT_UP:
-      Serial.print( "right up" );
-      break;
-
-    case P_FOR_DOWN:
-      Serial.print( "for down" );
-      break;
-
-    case P_FOR_UP:
-      Serial.print( "for up" );
-      break;
-
-    case P_BACK_DOWN:
-      Serial.print( "back down" );
-      break;
-
-    case P_BACK_UP:
-      Serial.print( "back up" );
-      break;
-
-    case P_CENTER_DOWN:
-      Serial.print( "center down" );
-      break;
-
-    case P_CENTER_UP:
-      Serial.print( "center up" );
-      break;
+  // set all output pins to OUTPUT mode
+  for (int i = 0; i < OUTPUT_PINS_SIZE; i++) {
+    pinMode(OUTPUT_PINS[i], OUTPUT);
   }
 
-  Serial.print( " " );
-  Serial.println( sender->id );
-}
+  set_green_red();
 
-void switchExample( Control* sender, int value ) {
-  switch ( value ) {
-    case S_ACTIVE:
-      Serial.print( "Active:" );
-      break;
-
-    case S_INACTIVE:
-      Serial.print( "Inactive" );
-      break;
-  }
-
-  Serial.print( " " );
-  Serial.println( sender->id );
-}
-
-void selectExample( Control* sender, int value ) {
-  Serial.print("Select: ID: ");
-  Serial.print(sender->id);
-  Serial.print(", Value: ");
-  Serial.println( sender->value );
-}
-
-void otherSwitchExample( Control* sender, int value ) {
-  switch ( value ) {
-    case S_ACTIVE:
-      Serial.print( "Active:" );
-      break;
-
-    case S_INACTIVE:
-      Serial.print( "Inactive" );
-      break;
-  }
-
-  Serial.print( " " );
-  Serial.println( sender->id );
-}
-
-void setup( void ) {
-  Serial.begin( 115200 );
-
-  WiFi.setHostname( SECRET_HOSTNAME );
-
+  WiFi.setHostname(SECRET_HOSTNAME);
 
   // try to connect to existing network
-  WiFi.begin( SECRET_SSID, SECRET_PASSWORD );
-  Serial.print( "\n\nTry to connect to existing network" );
+  WiFi.begin(SECRET_SSID, SECRET_PASSWORD);
+  Serial.print("\n\nTry to connect to existing network ");
+  Serial.print(SECRET_SSID);
 
-  {
-    // Wait for connection
-    do {
-      delay( 500 );
-      Serial.print( "." );
-    } while ( WiFi.status() != WL_CONNECTED );
+  // Wait for connection
+  do {
+    delay(500);
+    Serial.print(".");
+  } while (WiFi.status() != WL_CONNECTED);
 
-  }
+  Serial.println("\n\nWiFi parameters:");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
 
+  // create millis label
+  MILLIS_LABEL_ID = ESPUI.label("Millis:", ControlColor::Emerald, "");
+  LEFT_LIGHT_LABEL_ID =
+      ESPUI.label("Left Light Status:", ControlColor::Emerald, "");
+  RIGHT_LIGHT_LABEL_ID =
+      ESPUI.label("Right Light Status:", ControlColor::Emerald, "");
 
-
-  Serial.println( "\n\nWiFi parameters:" );
-  Serial.print( "IP address: " );
-  Serial.println( WiFi.localIP() );
-
-  uint16_t tab1 = ESPUI.addControl( ControlType::Tab, "Settings 1", "Settings 1" );
-  uint16_t tab2 = ESPUI.addControl( ControlType::Tab, "Settings 2", "Settings 2" );
-  uint16_t tab3 = ESPUI.addControl( ControlType::Tab, "Settings 3", "Settings 3" );
-
-  // shown above all tabs
-  status = ESPUI.addControl( ControlType::Label, "Status:", "Stop", ControlColor::Turquoise );
-
-  uint16_t select1 = ESPUI.addControl( ControlType::Select, "Select:", "", ControlColor::Alizarin, tab1, &selectExample );
-  ESPUI.addControl( ControlType::Option, "Option1", "Opt1", ControlColor::Alizarin, select1 );
-  ESPUI.addControl( ControlType::Option, "Option2", "Opt2", ControlColor::Alizarin, select1 );
-  ESPUI.addControl( ControlType::Option, "Option3", "Opt3", ControlColor::Alizarin, select1 );
-  
-  ESPUI.addControl( ControlType::Text, "Text Test:", "a Text Field", ControlColor::Alizarin, tab1, &textCall );
-
-  // tabbed controls
-  ESPUI.addControl( ControlType::Label, "Millis:", "0", ControlColor::Dark, tab1 );
-  button1 = ESPUI.addControl( ControlType::Button, "Push Button", "Press", ControlColor::Peterriver, tab1, &buttonCallback );
-  ESPUI.addControl( ControlType::Button, "Other Button", "Press", ControlColor::Wetasphalt, tab1, &buttonExample );
-  ESPUI.addControl( ControlType::PadWithCenter, "Pad with center", "", ControlColor::Sunflower, tab2, &padExample );
-  ESPUI.addControl( ControlType::Pad, "Pad without center", "", ControlColor::Carrot, tab3, &padExample );
-  switchOne = ESPUI.addControl( ControlType::Switcher, "Switch one", "", ControlColor::Alizarin, tab3, &switchExample );
-  ESPUI.addControl( ControlType::Switcher, "Switch two", "", ControlColor::None, tab3, &otherSwitchExample );
-  ESPUI.addControl( ControlType::Slider, "Slider one", "30", ControlColor::Alizarin, tab1, &slider );
-  ESPUI.addControl( ControlType::Slider, "Slider two", "100", ControlColor::Alizarin, tab3, &slider );
-  ESPUI.addControl( ControlType::Number, "Number:", "50", ControlColor::Alizarin, tab3, &numberCall );
-
-  /*
-   * .begin loads and serves all files from PROGMEM directly.
-   * If you want to serve the files from SPIFFS use ESPUI.beginSPIFFS
-   * (.prepareFileSystem has to be run in an empty sketch before)
-   */
-
-  // Enable this option if you want sliders to be continuous (update during move) and not discrete (update on stop)
-  // ESPUI.sliderContinuous = true;
-
-  /*
-   * Optionally you can use HTTP BasicAuth. Keep in mind that this is NOT a
-   * SECURE way of limiting access.
-   * Anyone who is able to sniff traffic will be able to intercept your password
-   * since it is transmitted in cleartext. Just add a string as username and
-   * password, for example begin("ESPUI Control", "username", "password")
-   */
-
-
-  ESPUI.begin("ESPUI Control");
+  ESPUI.begin("traffic_light Control");
 }
 
-void loop( void ) {
-  static long oldTime = 0;
-  static bool switchi = false;
+void loop(void) {
 
-  if ( millis() - oldTime > 5000 ) {
-    switchi = !switchi;
-    ESPUI.updateControlValue( switchOne, switchi ? "1" : "0" );
-
-    oldTime = millis();
+  // used to keep track of previous run time
+  static unsigned long old_millis_time = 0;
+  if (millis() - old_millis_time > 250) {
+    ESPUI.print(MILLIS_LABEL_ID, String(millis()));
+    old_millis_time = millis();
   }
+  normal_mode();
+}
+
+void normal_mode(void) {
+  enum statuses {
+    green_red,
+    yellow_red,
+    red_red_1, // transition from straight traffic to cross traffic
+    red_green,
+    red_yellow,
+    red_red_2, // transition from cross traffic to straight traffic
+  };
+
+  static unsigned long next_green_red = 0;
+  static unsigned long next_yellow_red = 12000;
+  static unsigned long next_red_red_1 = 15000;
+  static unsigned long next_red_green = 16000;
+  static unsigned long next_red_yellow = 28000;
+  static unsigned long next_red_red_2 = 31000;
+
+  unsigned long now = millis();
+  static enum statuses pending_status = green_red;
+  // switch from prior status after time in ms defined in the if block passes
+  switch (pending_status) {
+  case green_red:
+    if (now > next_green_red) {
+      Serial.println(": yellow_red");
+
+      pending_status = yellow_red;
+      set_green_red();
+
+      next_green_red = next_green_red + TOTAL_CYCLE_DURATION;
+    }
+    break;
+
+  case yellow_red:
+    if (now > next_yellow_red) {
+      Serial.println(": red_red_1");
+
+      pending_status = red_red_1;
+      set_yellow_red();
+
+      next_yellow_red = next_yellow_red + TOTAL_CYCLE_DURATION;
+    }
+    break;
+
+  case red_red_1:
+    if (now > next_red_red_1) {
+      Serial.println(": red_green");
+
+      pending_status = red_green;
+      set_red_red();
+
+      next_red_red_1 = next_red_red_1 + TOTAL_CYCLE_DURATION;
+    }
+    break;
+
+  case red_green:
+    if (now > next_red_green) {
+      Serial.println(": red_yellow");
+
+      pending_status = red_yellow;
+      set_red_green();
+
+      next_red_green = next_red_green + TOTAL_CYCLE_DURATION;
+    }
+    break;
+
+  case red_yellow:
+    if (now > next_red_yellow) {
+      Serial.println(": red_red_2");
+
+      pending_status = red_red_2;
+      set_red_yellow();
+
+      next_red_yellow = next_red_yellow + TOTAL_CYCLE_DURATION;
+    }
+    break;
+
+  case red_red_2:
+    if (now > next_red_red_2) {
+      Serial.println(": green_red");
+
+      pending_status = green_red;
+      set_red_red();
+
+      next_red_red_2 = next_red_red_2 + TOTAL_CYCLE_DURATION;
+    }
+    break;
+  }
+}
+
+void set_green(SIDE side) {
+  switch (side) {
+  case LEFT:
+    digitalWrite(LEFT_GREEN, HIGH);
+    digitalWrite(LEFT_YELLOW, LOW);
+    digitalWrite(LEFT_RED, LOW);
+
+    ESPUI.print(LEFT_LIGHT_LABEL_ID, "GREEN");
+    break;
+
+  case RIGHT:
+    digitalWrite(RIGHT_GREEN, HIGH);
+    digitalWrite(RIGHT_YELLOW, LOW);
+    digitalWrite(RIGHT_RED, LOW);
+
+    ESPUI.print(RIGHT_LIGHT_LABEL_ID, "GREEN");
+    break;
+  }
+}
+
+void set_yellow(SIDE side) {
+  switch (side) {
+  case LEFT:
+    digitalWrite(LEFT_GREEN, LOW);
+    digitalWrite(LEFT_YELLOW, HIGH);
+    digitalWrite(LEFT_RED, LOW);
+
+    ESPUI.print(LEFT_LIGHT_LABEL_ID, "YELLOW");
+    break;
+
+  case RIGHT:
+    digitalWrite(RIGHT_GREEN, LOW);
+    digitalWrite(RIGHT_YELLOW, HIGH);
+    digitalWrite(RIGHT_RED, LOW);
+
+    ESPUI.print(RIGHT_LIGHT_LABEL_ID, "YELLOW");
+    break;
+  }
+}
+
+void set_red(SIDE side) {
+  switch (side) {
+  case LEFT:
+    digitalWrite(LEFT_GREEN, LOW);
+    digitalWrite(LEFT_YELLOW, LOW);
+    digitalWrite(LEFT_RED, HIGH);
+
+    ESPUI.print(LEFT_LIGHT_LABEL_ID, "RED");
+    break;
+
+  case RIGHT:
+    digitalWrite(RIGHT_GREEN, LOW);
+    digitalWrite(RIGHT_YELLOW, LOW);
+    digitalWrite(RIGHT_RED, HIGH);
+
+    ESPUI.print(RIGHT_LIGHT_LABEL_ID, "RED");
+    break;
+  }
+}
+
+void set_green_red(void) {
+  set_green(LEFT);
+  set_red(RIGHT);
+}
+
+void set_yellow_red(void) {
+  set_yellow(LEFT);
+  set_red(RIGHT);
+}
+
+void set_red_red(void) {
+  set_red(LEFT);
+  set_red(RIGHT);
+}
+
+void set_red_green(void) {
+  set_red(LEFT);
+  set_green(RIGHT);
+}
+
+void set_red_yellow(void) {
+  set_red(LEFT);
+  set_yellow(RIGHT);
 }
